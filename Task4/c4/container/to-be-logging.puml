@@ -1,0 +1,73 @@
+@startuml
+
+!theme carbon-gray
+!include <C4/C4_Container>
+!include doc/common/c4-custom-rel.iuml
+!include doc/common/theme.iuml
+
+SHOW_PERSON_OUTLINE()
+
+AddContainerTag("LoggingNew", $bgColor="Red", $fontColor="White")
+AddContainerTag("Loggable", $borderColor="Red", $borderThickness=8, $borderStyle=DashedLine())
+
+title C4 Container: логирование (to-be)
+header «Александрит»
+
+Person_Ext(customer, "Customer", "Клиент интернет-магазина, оформляет заказы на украшения.")
+Person(seller, "Seller", "Продавец, работает в CRM и ведёт заказы клиентов.")
+Person_Ext(api_user, "API user", "Внешний продавец, использующий API для расчёта и оформления заказов.")
+Person(operator, "Operator", "Оператор производства, работает в MES и изготавливает украшения.")
+
+System_Boundary(jss, "Система Ювелирного Магазина") {
+  Container(jss.internet_shop, "Internet Shop", "Vue, TypeScript", "Онлайн-магазин: каталог, оформление заказов, загрузка или конструирование 3D-модели.", $tags="Loggable")
+
+  Container(jss.shop_api, "Shop API", "Spring Boot", "- Бэкенд интернет-магазина\n- Отдаёт каталог и принимает HTTP-запросы от фронтенда\n- Принимает и сохраняет 3D-файлы и данные заказов", $tags="Loggable")
+
+  Container(jss.crm, "CRM", "Vue, TypeScript", "Веб-интерфейс для продавцов, работающих с клиентами и их заказами.", $tags="Loggable")
+  Container(jss.crm_api, "CRM API", "Spring Boot", "Бэкенд CRM: управляет данными клиентов и заказов, обращается к базе данных и очереди сообщений.", $tags="Loggable")
+
+  Container(jss.mes, "MES", "React, TypeScript", "Веб-интерфейс для операторов: показывает заказы в работе и позволяет управлять производством.", $tags="Loggable")
+  Container(jss.mes_api, "MES API", "C#", "- Бэкенд MES\n- Расчитывает стоимость заказа по 3D-модели\n- Управляет статусами производственных заказов\n- Обменивается событиями через очередь сообщений", $tags="Loggable")
+
+  ContainerDb(jss.shop_db, "Shop DB", "PostgreSQL", "База данных интернет-магазина и CRM: клиенты, заказы и связанные данные.")
+  ContainerDb(jss.mes_db, "MES DB", "PostgreSQL", "База данных MES: заказы в производстве, их статусы и назначение на операторов.")
+
+  ContainerQueue(jss.messages_queue, "Messages Queue", "RabbitMQ", "Очередь сообщений для обмена событиями по заказам между CRM и MES.")
+
+  Container(jss.storage_3d, "3D files storage", "S3-based storage", "Хранилище 3D-файлов для расчёта стоимости и производства.")
+
+  Container(jss.log_collector, "Log Collector", "Fluentd / Logstash", "Принимает логи от агентов, нормализует, обогащает метаданными и маршрутизирует в хранилище логов.", $tags="LoggingNew")
+  Container(jss.log_storage, "Log Storage & Dashboards", "OpenSearch + Dashboards", "Централизованное хранилище логов и интерфейс для поиска, дашбордов и алертинга на основе логов.", $tags="LoggingNew")
+
+  Rel_R(jss.log_collector, jss.log_storage, "Сохраняет логи и метаданные для анализа", "")
+}
+
+Rel_D(customer, jss.internet_shop, "Просматривает каталог, оформляет заказы, загружает 3D-модели", "")
+Rel_D(seller, jss.crm, "Работает с заказами клиентов в CRM", "")
+Rel_D(api_user, jss.mes_api, "Использует API для расчёта стоимости и создания заказов", "")
+Rel_D(operator, jss.mes, "Работает с заказами в производстве", "")
+
+Rel_D(jss.mes, jss.mes_api, "HTTP-запросы от MES к MES API", "")
+Rel_D(jss.internet_shop, jss.shop_api, "HTTP-запросы от интернет-магазина к Shop API", "")
+Rel_L(jss.shop_api, jss.shop_db, "Читает и записывает данные клиентов и заказов", "")
+
+Rel_D(jss.crm, jss.crm_api, "HTTP-запросы от CRM к CRM API", "")
+Rel_R(jss.crm_api, jss.shop_db, "Читает и записывает данные клиентов и заказов", "")
+
+ARel(jss.mes_api, jss.storage_3d, "Читает 3D-файлы для расчёта и производства", "", $arrow="-d->")
+ARel(jss.shop_api, jss.storage_3d, "Загружает 3D-файлы клиентов", "", $arrow="-d->")
+ARel(jss.crm_api, jss.storage_3d, "Доступ к 3D-файлам заказов", "", $arrow="-d->")
+
+BiRel_L(jss.crm_api, jss.messages_queue, "Публикует и получает события по заказам", "")
+BiRel_R(jss.mes_api, jss.messages_queue, "Публикует и получает события по заказам", "")
+
+ARel(jss.mes_api, jss.mes_db, "Читает и записывает данные MES по заказам и производству", "", $arrow="-d->")
+
+Lay_R(api_user, operator)
+Lay_R(seller, customer)
+
+Lay_R(jss.mes, jss.log_collector)
+
+SHOW_LEGEND()
+
+@enduml

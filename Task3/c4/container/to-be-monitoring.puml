@@ -1,0 +1,82 @@
+@startuml
+
+!theme carbon-gray
+!include <C4/C4_Container>
+!include doc/common/c4-custom-rel.iuml
+!include doc/common/theme.iuml
+
+SHOW_PERSON_OUTLINE()
+
+AddContainerTag("TracingNew", $bgColor="Red", $fontColor="White")
+AddContainerTag("Traceable", $borderColor="Red", $borderThickness=8, $borderStyle=DashedLine())
+AddContainerTag("MonitoringNew", $bgColor="LightGreen", $fontColor="Black")
+
+title C4 Container: трейсинг и мониторинг (to-be)
+header «Александрит»
+
+Person_Ext(customer, "Customer", "Клиент интернет-магазина, оформляет заказы на украшения.")
+Person(seller, "Seller", "Продавец, работает в CRM и ведёт заказы клиентов.")
+Person_Ext(api_user, "API user", "Внешний продавец, использующий API для расчёта и оформления заказов.")
+Person(operator, "Operator", "Оператор производства, работает в MES и изготавливает украшения.")
+
+System_Boundary(jss, "Система Ювелирного Магазина") {
+  Container(jss.internet_shop, "Internet Shop", "Vue, TypeScript", "Онлайн-магазин: каталог, оформление заказов, загрузка или конструирование 3D-модели.")
+
+  Container(jss.shop_api, "Shop API", "Spring Boot", "- Бэкенд интернет-магазина\n- Отдаёт каталог и принимает HTTP-запросы от фронтенда\n- Принимает и сохраняет 3D-файлы и данные заказов", $tags="Traceable")
+
+  Container(jss.crm, "CRM", "Vue, TypeScript", "Веб-интерфейс для продавцов, работающих с клиентами и их заказами.")
+  Container(jss.crm_api, "CRM API", "Spring Boot", "Бэкенд CRM: управляет данными клиентов и заказов, обращается к базе данных и очереди сообщений.", $tags="Traceable")
+
+  Container(jss.mes, "MES", "React, TypeScript", "Веб-интерфейс для операторов: показывает заказы в работе и позволяет управлять производством.")
+  Container(jss.mes_api, "MES API", "C#", "- Бэкенд MES\n- Расчитывает стоимость заказа по 3D-модели\n- Управляет статусами производственных заказов\n- Обменивается событиями через очередь сообщений", $tags="Traceable")
+
+  ContainerDb(jss.shop_db, "Shop DB", "PostgreSQL", "База данных интернет-магазина и CRM: клиенты, заказы и связанные данные.", $tags="Traceable")
+  ContainerDb(jss.mes_db, "MES DB", "PostgreSQL", "База данных MES: заказы в производстве, их статусы и назначение на операторов.", $tags="Traceable")
+
+  ContainerQueue(jss.messages_queue, "Messages Queue", "RabbitMQ", "Очередь сообщений для обмена событиями по заказам между CRM и MES.", $tags="Traceable")
+
+  Container(jss.storage_3d, "3D files storage", "S3-based storage", "Хранилище 3D-файлов для расчёта стоимости и производства.", $tags="Traceable")
+
+  Container(jss.tracing_collector, "Tracing Collector", "OpenTelemetry Collector", "Сбор и маршрутизация трейсов от сервисов.", $tags="TracingNew")
+  Container(jss.tracing_storage, "Tracing Storage & UI", "Jaeger / Tempo + UI", "Хранение и визуализация распределённых трейсов.", $tags="TracingNew")
+
+  Container(jss.order_monitor, "Order Monitoring Service", "Go / Java / C#", "Периодически анализирует трейсы заказов,\nстроит агрегированные метрики по статусам и задержкам.", $tags="MonitoringNew")
+  Container(jss.alerting, "Alerting & Notification", "Alertmanager / Email / ChatOps", "Получает сигналы от мониторинга\nи рассылает алерты команде поддержки и разработчикам.", $tags="MonitoringNew")
+
+  Rel_D(jss.tracing_collector, jss.tracing_storage, "Агрегирует и передаёт трейсы", "")
+  Rel_R(jss.tracing_storage, jss.order_monitor, "Отдаёт данные трейсов заказов", "")
+  Rel_U(jss.order_monitor, jss.alerting, "Отправляет сигналы о нарушениях SLO/аномалиях", "")
+
+  Lay_R(jss.order_monitor, jss.crm)
+}
+
+Rel_D(customer, jss.internet_shop, "Просматривает каталог, оформляет заказы, загружает 3D-модели", "")
+Rel_D(seller, jss.crm, "Работает с заказами клиентов в CRM", "")
+Rel_D(api_user, jss.mes_api, "Использует API для расчёта стоимости и создания заказов", "")
+Rel_D(operator, jss.mes, "Работает с заказами в производстве", "")
+
+Rel_D(jss.mes, jss.mes_api, "HTTP-запросы от MES к MES API", "")
+Rel_D(jss.internet_shop, jss.shop_api, "HTTP-запросы от интернет-магазина к Shop API", "")
+Rel_L(jss.shop_api, jss.shop_db, "Читает и записывает данные клиентов и заказов", "")
+
+Rel_D(jss.crm, jss.crm_api, "HTTP-запросы от CRM к CRM API", "")
+Rel_R(jss.crm_api, jss.shop_db, "Читает и записывает данные клиентов и заказов", "")
+
+ARel(jss.mes_api, jss.storage_3d, "Читает 3D-файлы для расчёта и производства", "", $arrow="-d->")
+ARel(jss.shop_api, jss.storage_3d, "Загружает 3D-файлы клиентов", "", $arrow="-d->")
+ARel(jss.crm_api, jss.storage_3d, "Доступ к 3D-файлам заказов", "", $arrow="-d->")
+
+BiRel_L(jss.crm_api, jss.messages_queue, "Публикует и получает события по заказам", "")
+BiRel_R(jss.mes_api, jss.messages_queue, "Публикует и получает события по заказам", "")
+
+ARel(jss.mes_api, jss.mes_db, "Читает и записывает данные MES по заказам и производству", "", $arrow="-d->")
+
+Rel_U(jss.alerting, seller, "Алерты по проблемным заказам и SLA", "")
+Rel_U(jss.alerting, operator, "Алерты по зависшим производственным заказам", "")
+
+Lay_R(api_user, operator)
+Lay_R(seller, customer)
+
+SHOW_LEGEND()
+
+@enduml

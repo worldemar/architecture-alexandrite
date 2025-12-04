@@ -1,0 +1,57 @@
+@startuml
+
+!include doc/common/theme.iuml
+
+title Sequence: операция чтения списка заказов и запись об изменении статуса заказа (to-be)
+header «Александрит»
+
+actor Operator as Op
+participant "MES (frontend)" as MesUI
+participant "MES API" as MesAPI
+participant "Cache (Redis)" as Cache
+database "MES DB" as MesDB
+participant "RabbitMQ" as MQ
+participant "CRM API" as CrmAPI
+
+== Чтение списка заказов (дашборд MES) ==
+
+Op -> MesUI: Открыть страницу "Заказы"
+MesUI -> MesAPI: GET /orders?status=PRICE_CALCULATED,MANUFACTURING_APPROVED&page=1
+
+MesAPI -> Cache: GET mes:orders:list:PRICE_CALCULATED+MANUFACTURING_APPROVED:1:page-size:sort:filters-hash
+alt Кеш хит
+  Cache --> MesAPI: Список заказов (из кеша)
+  MesAPI --> MesUI: 200 OK + список заказов
+else Кеш мисс
+  Cache --> MesAPI: Ключ не найден
+  MesAPI -> MesDB: SELECT ... FROM orders WHERE status IN ("PRICE_CALCULATED","MANUFACTURING_APPROVED") ORDER BY created_at DESC LIMIT ...
+  MesDB --> MesAPI: Список заказов (из БД)
+  MesAPI -> Cache: SET mes:orders:list:PRICE_CALCULATED+MANUFACTURING_APPROVED:1:page-size:sort:filters-hash = список, TTL 10s
+  MesAPI --> MesUI: 200 OK + список заказов
+end
+
+note over MesAPI
+При недоступности Cache все чтения идут напрямую в MES DB,
+запись в кеш временно отключается, фиксируется деградация.
+end note
+
+== Изменение статуса заказа ==
+
+Op -> MesUI: Изменить статус заказа
+MesUI -> MesAPI: POST /orders/{orderId}/status\nbody: newStatus
+
+MesAPI -> MesDB: UPDATE orders SET status = newStatus WHERE id = {orderId}
+MesDB --> MesAPI: OK
+
+MesAPI -> Cache: DEL mes:orders:by-id:{orderId}
+MesAPI -> Cache: DEL mes:orders:list:*   (упрощённо инвалидируем связанные списки)
+
+opt Синхронизация с CRM
+  MesAPI -> MQ: Публикация события OrderStatusChanged\n(orderId, oldStatus, newStatus)
+  MQ -> CrmAPI: Сообщение OrderStatusChanged
+end
+
+MesAPI --> MesUI: 200 OK + обновлённый статус
+MesUI --> Op: Показать новый статус заказа
+
+@enduml

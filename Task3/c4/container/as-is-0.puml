@@ -1,0 +1,64 @@
+@startuml
+
+!theme carbon-gray
+!include <C4/C4_Container>
+!include doc/common/c4-custom-rel.iuml
+!include doc/common/theme.iuml
+
+SHOW_PERSON_OUTLINE()
+
+title C4 Container
+header «Александрит»
+
+Person_Ext(customer, "Customer", "Description of external person.")
+Person(seller, "Seller", "Operates with order, confirms manufacturing for the user")
+Person_Ext(api_user, "API user", "Description of external person.")
+Person(operator, "Operator", "Takes order in work, manufactures jewerly ")
+
+System_Boundary(jss, "Jewerly Store System") {
+  Container(jss.internet_shop, "Internet Shop", "Vue, TypeScript, Threejs", "User can make an order, upload 3d model, work in 3d editor")
+
+  Container(jss.shop_api, "Shop API", "SpringBoot", "- provide list of shop items\n- receives user generated or uploaded 3d file\n- save information about order from customer perspective")
+
+  Container(jss.crm, "CRM", "Vue, Typescript", "Description of web browser container role/responsibility.")
+  Container(jss.crm_api, "CRM API", "SpringBoot", "Description of container role/responsibility.")
+
+  Container(jss.mes, "MES", "React, typescript", "provide interface to assign orders on operators, shows list of orders")
+  Container(jss.mes_api, "MES API", "C#", "- Assigns orders on operators\n- Shows list of orders\n- Calculates price of the order")
+
+  ContainerDb(jss.shop_db, "Shop DB", "PostgreSQL", "Holds main information about work with customers and its orders")
+  ContainerDb(jss.mes_db, "MES db", "PostgreSQL", "Holds information about orders, its assignments on operators and statuses from MES perspective")
+
+  ContainerQueue(jss.messages_queue, "Messages Queue", "RabbitMQ", "Send messages about new orders, changes of statuses between containers, has several topics")
+
+  Container(jss.storage_3d, "3d files storage", "S3-based storage", "stores 3d files so that can be calculated")
+}
+
+Rel_R(customer, jss.internet_shop, "", "")
+Rel_R(seller, jss.crm, "", "")
+Rel_R(api_user, jss.mes_api, "", "")
+Rel_R(operator, jss.mes, "", "")
+
+Rel_U(jss.mes, jss.mes_api, "", "")
+Rel_R(jss.internet_shop, jss.shop_api, "", "")
+Rel_D(jss.shop_api, jss.shop_db, "", "")
+
+Rel_R(jss.crm, jss.crm_api, "", "")
+Rel_U(jss.crm_api, jss.shop_db, "", "")
+
+Rel_R(jss.mes_api, jss.storage_3d, "", "")
+Rel_R(jss.shop_api, jss.storage_3d, "uploads files", "")
+Rel_R(jss.crm_api, jss.storage_3d, "", "")
+
+BiRel_D(jss.crm_api, jss.messages_queue, "", "")
+BiRel_U(jss.mes_api, jss.messages_queue, "", "")
+
+Rel_D(jss.mes_api, jss.mes_db, "", "")
+
+' make sure persons are all on the same side of diagram
+Lay_D(customer, seller)
+Lay_D(seller, api_user)
+Lay_D(api_user, operator)
+
+@enduml
+
